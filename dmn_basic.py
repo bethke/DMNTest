@@ -254,7 +254,7 @@ class DMN_basic:
 
     
     def save_params(self, file_name, epoch, **kwargs):
-        with open(file_name, 'w') as save_file:
+        with open(file_name, 'wb') as save_file:
             pickle.dump(
                 obj = {
                     'params' : [x.get_value() for x in self.params],
@@ -268,7 +268,7 @@ class DMN_basic:
     
     def load_state(self, file_name):
         print("==> loading state %s" % file_name)
-        with open(file_name, 'r') as load_file:
+        with open(file_name, 'rb') as load_file:
             dict = pickle.load(load_file)
             loaded_params = dict['params']
             for (x, y) in zip(self.params, loaded_params):
