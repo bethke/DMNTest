@@ -14,30 +14,38 @@ from sklearn.feature_extraction.stop_words import ENGLISH_STOP_WORDS
 # The data is split into information blocks, question blocks, and answer blocks to process
 # through the neural network. Returns the data as a list of dictionaries.
 def init_data(fname):
-    print "==> Loading test from %s" % fname
+    print("==> Loading test from %s" % fname)
     tasks = [] # list that will be returned
     documents = ""
+    maxi=0
+    num_files = 0
     for f in os.listdir(fname):
-    	inData = open(fname + "/" + f)
-    	for i, line in enumerate(inData):
-		line = line.strip()
-		try:
-			post = json.loads(line) # make sure we can parse the json
-		except Exception:
-			print(line)
-		text = post["body_text"]
-		text = text_to_words(text) # call text_to_words to process the text. See text_to_words
-		novelty = post["novelty"] 
-		task = {"C": "","Q": "", "A": ""} 
-		if i < 100:
-			documents += text # add the first 100 documents before setting any tasks
-		elif i < 200:
-			task["C"] += documents # add the next 100 documents as a task with the new document as a question.
-			task["Q"] = text
-        		task["A"] = novelty
-        		tasks.append(task.copy())
-			documents += text
-	#documents = ""
+        inData = open(fname + "/" + f)
+        num_files += 1
+        for i, line in enumerate(inData):
+            #print(i, line)
+            line = line.strip()
+            try:
+                post = json.loads(line) # make sure we can parse the json
+            except Exception:
+                print("Error with file " +  f)
+                #continue
+            text = post["body_text"]
+            text = text_to_words(text) # call text_to_words to process the text. See text_to_words
+            novelty = post["novelty"]
+            task = {"C": "","Q": "", "A": ""}
+            if i < 2:
+                documents += text # add the first 2 documents before setting any tasks
+            elif i < 200:
+                task["C"] += documents # add the next 200 documents as a task with the new document as a question.
+                task["Q"] = text
+                task["A"] = novelty
+                tasks.append(task.copy())
+                documents += text
+            if i>maxi:
+                maxi=i
+    #documents = ""
+    print(maxi, num_files)
     return tasks
 
 # Go fetch and process the raw data from the file system using init_data. See init_data.
@@ -50,13 +58,13 @@ def get_raw_data(input_file_train, input_file_test):
 def load_glove(dim):
     word2vec = {}
     
-    print "==> loading glove"
+    print("==> loading glove")
     with open(os.path.join(os.path.dirname(os.path.realpath(__file__)), "data/glove/glove.6B." + str(dim) + "d.txt")) as f:
         for line in f:    
             l = line.split()
-            word2vec[l[0]] = map(float, l[1:])
+            word2vec[l[0]] = list(map(float, l[1:]))
             
-    print "==> glove is loaded"
+    print("==> glove is loaded")
     
     return word2vec
 
@@ -66,7 +74,7 @@ def create_vector(word, word2vec, word_vector_size, silent=False):
     vector = np.random.uniform(0.0,1.0,(word_vector_size,))
     word2vec[word] = vector
     if (not silent):
-        print "utils.py::create_vector => %s is missing" % word
+        print("utils.py::create_vector => %s is missing" % word)
     return vector
 
 # Create a vector for these words if they are not in word2vec.

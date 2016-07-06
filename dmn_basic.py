@@ -8,7 +8,10 @@ from theano.compile.nanguardmode import NanGuardMode
 import lasagne
 from lasagne import layers
 from lasagne import nonlinearities
-import cPickle as pickle
+try:
+   import cPickle as pickle
+except:
+   import pickle
 
 import utils
 import nn_utils
@@ -22,7 +25,7 @@ class DMN_basic:
                 dim, mode, answer_module, input_mask_mode, memory_hops, l2, 
                 normalize_attention, **kwargs):
 
-        print "==> not used params in DMN class:", kwargs.keys()
+        print("==> not used params in DMN class:", kwargs.keys())
         self.vocab = {}
         self.ivocab = {}
         
@@ -36,18 +39,18 @@ class DMN_basic:
         self.l2 = l2
         self.normalize_attention = normalize_attention
         
-	# Process the input into its different parts and calculate the input mask
+    # Process the input into its different parts and calculate the input mask
         self.train_input, self.train_q, self.train_answer, self.train_input_mask = self._process_input(train_raw)
         self.test_input, self.test_q, self.test_answer, self.test_input_mask = self._process_input(test_raw)
         self.vocab_size = len(self.vocab)
 
         self.input_var = T.matrix('input_var')
         self.q_var = T.matrix('question_var')
-	self.answer_var = T.iscalar('answer_var')
+        self.answer_var = T.iscalar('answer_var')
         self.input_mask_var = T.ivector('input_mask_var')
         
             
-        print "==> building input module"
+        print("==> building input module")
         self.W_inp_res_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.word_vector_size))
         self.W_inp_res_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
         self.b_inp_res = nn_utils.constant_param(value=0.0, shape=(self.dim,))
@@ -66,14 +69,14 @@ class DMN_basic:
 
         self.inp_c = inp_c_history.take(self.input_mask_var, axis=0)
         
-	self.q_q, _ = theano.scan(fn = self.input_gru_step,
+        self.q_q, _ = theano.scan(fn = self.input_gru_step,
 			sequences = self.q_var,
 			outputs_info = T.zeros_like(self.b_inp_hid))
 
-	self.q_q = self.q_q[-1]
+        self.q_q = self.q_q[-1]
 
 
-        print "==> creating parameters for memory module"
+        print("==> creating parameters for memory module")
         self.W_mem_res_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
         self.W_mem_res_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
         self.b_mem_res = nn_utils.constant_param(value=0.0, shape=(self.dim,))
@@ -93,7 +96,7 @@ class DMN_basic:
         self.b_2 = nn_utils.constant_param(value=0.0, shape=(1,))
         
 
-        print "==> building episodic memory module (fixed number of steps: %d)" % self.memory_hops
+        print("==> building episodic memory module (fixed number of steps: %d)" % self.memory_hops)
         memory = [self.q_q.copy()]
         for iter in range(1, self.memory_hops + 1):
             current_episode = self.new_episode(memory[iter - 1])
@@ -104,7 +107,7 @@ class DMN_basic:
         
         last_mem = memory[-1]
         
-        print "==> building answer module"
+        print("==> building answer module")
         self.W_a = nn_utils.normal_param(std=0.1, shape=(self.vocab_size, self.dim))
         
         if self.answer_module == 'feedforward':
@@ -143,7 +146,7 @@ class DMN_basic:
             raise Exception("invalid answer_module")
         
         
-        print "==> collecting all parameters"
+        print("==> collecting all parameters")
         self.params = [self.W_inp_res_in, self.W_inp_res_hid, self.b_inp_res, 
                   self.W_inp_upd_in, self.W_inp_upd_hid, self.b_inp_upd,
                   self.W_inp_hid_in, self.W_inp_hid_hid, self.b_inp_hid,
@@ -158,7 +161,7 @@ class DMN_basic:
                               self.W_ans_hid_in, self.W_ans_hid_hid, self.b_ans_hid]
         
         
-        print "==> building loss layer and computing updates"
+        print("==> building loss layer and computing updates")
         self.loss_ce = T.nnet.categorical_crossentropy(self.prediction.dimshuffle('x', 0), T.stack([self.answer_var]))[0]
         if self.l2 > 0:
             self.loss_l2 = self.l2 * nn_utils.l2_reg(self.params)
@@ -170,18 +173,18 @@ class DMN_basic:
         updates = lasagne.updates.adadelta(self.loss, self.params)
         
         if self.mode == 'train':
-            print "==> compiling train_fn"
+            print("==> compiling train_fn")
             self.train_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.input_mask_var], 
                                        outputs=[self.prediction, self.loss],
                                        updates=updates)
         
-        print "==> compiling test_fn"
+        print("==> compiling test_fn")
         self.test_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.input_mask_var],
                                   outputs=[self.prediction, self.loss, self.inp_c, self.q_q, last_mem])
         
         
         if self.mode == 'train':
-            print "==> computing gradients (for debugging)"
+            print("==> computing gradients (for debugging)")
             gradient = T.grad(self.loss, self.params)
             self.get_gradient_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.input_mask_var], outputs=gradient)
 
@@ -259,12 +262,12 @@ class DMN_basic:
                     'gradient_value': (kwargs['gradient_value'] if 'gradient_value' in kwargs else 0)
                 },
                 file = save_file,
-                protocol = -1
+                protocol = 2
             )
     
     
     def load_state(self, file_name):
-        print "==> loading state %s" % file_name
+        print("==> loading state %s" % file_name)
         with open(file_name, 'r') as load_file:
             dict = pickle.load(load_file)
             loaded_params = dict['params']
@@ -272,52 +275,52 @@ class DMN_basic:
                 x.set_value(y)
 
     def _process_input(self, data_raw):
-    '''
-    	This module processes the raw data input and grabs all the relevant sections and calculates the input_mask.
+        '''
+            This module processes the raw data input and grabs all the relevant sections and calculates the input_mask.
 
-	Args:
-		data_raw: raw data coming in from main class.
-	Returns:
-		inputs section, answers section, questions section, and input_masks as numpy arrays.
-    '''
-	inputs = []
+        Args:
+            data_raw: raw data coming in from main class.
+        Returns:
+            inputs section, answers section, questions section, and input_masks as numpy arrays.
+        '''
+        inputs = []
         answers = []
         input_masks = []
-	questions = []
+        questions = []
         for x in data_raw:
-            inp = x["C"].lower().split(' ') 
+            inp = x["C"].lower().split(' ')
             inp = [w for w in inp if len(w) > 0]
             q = x["Q"].lower().split(' ')
-	    q = [w for w in q if len(w) > 0]
+            q = [w for w in q if len(w) > 0]
 
             # Process the words from the input, answers, and questions to see what needs a new vector in word2vec.
-	    inp_vector = [utils.process_word(word = w, 
+            inp_vector = [utils.process_word(word = w,
                                         word2vec = self.word2vec, 
                                         vocab = self.vocab, 
                                         ivocab = self.ivocab, 
                                         word_vector_size = self.word_vector_size, 
                                         to_return = "word2vec") for w in inp]
             
-	    q_vector = [utils.process_word(word = w,
+            q_vector = [utils.process_word(word = w,
 		    			word2vec = self.word2vec,
 					vocab = self.vocab,
 					ivocab = self.ivocab,
 					word_vector_size = self.word_vector_size,
 					to_return = "word2vec") for w in q]
             inputs.append(np.vstack(inp_vector).astype(floatX))
-	    questions.append(np.vstack(q_vector).astype(floatX))
-            answers.append(utils.process_word(word = x["A"], 
+            questions.append(np.vstack(q_vector).astype(floatX))
+            answers.append(utils.process_word(word = x["A"],
                                             word2vec = self.word2vec, 
                                             vocab = self.vocab, 
                                             ivocab = self.ivocab, 
                                             word_vector_size = self.word_vector_size, 
                                             to_return = "index"))
-            
-	    # NOTE: here we assume the answer is one word! 
+
+            # NOTE: here we assume the answer is one word!
             if self.input_mask_mode == 'word':
                 input_masks.append(np.array([index for index, w in enumerate(inp)], dtype=np.int32)) # Get the input_masks for the data
-            elif self.input_mask_mode == 'sentence': 
-                input_masks.append(np.array([index for index, w in enumerate(inp) if w == '.'], dtype=np.int32)) 
+            elif self.input_mask_mode == 'sentence':
+                input_masks.append(np.array([index for index, w in enumerate(inp) if w == '.'], dtype=np.int32))
             else:
                 raise Exception("invalid input_mask_mode")
         
@@ -334,10 +337,10 @@ class DMN_basic:
     
     
     def shuffle_train_set(self):
-        print "==> Shuffling the train set"
-        combined = zip(self.train_input, self.train_q, self.train_answer, self.train_input_mask)
+        print("==> Shuffling the train set")
+        combined = list(zip(self.train_input, self.train_q, self.train_answer, self.train_input_mask))
         random.shuffle(combined)
-        self.train_input, self.train_q, self.train_answer, self.train_input_mask = zip(*combined)
+        self.train_input, self.train_q, self.train_answer, self.train_input_mask = list(zip(*combined))
         
     
     def step(self, batch_index, mode):
@@ -381,8 +384,8 @@ class DMN_basic:
             grad_norm = np.max([utils.get_norm(x) for x in gradient_value])
             
             if (np.isnan(grad_norm)):
-                print "==> gradient is nan at index %d." % batch_index
-                print "==> skipping"
+                print("==> gradient is nan at index %d." % batch_index)
+                print("==> skipping")
                 skipped = 1
         
         if skipped == 0:

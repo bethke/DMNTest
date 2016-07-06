@@ -10,7 +10,7 @@ import json
 import utils
 import nn_utils
 
-print "==> parsing input arguments"
+print("==> parsing input arguments")
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--network', type=str, default="dmn_batch", help='network type: dmn_basic, dmn_smooth, or dmn_batch')
@@ -37,14 +37,14 @@ parser.add_argument('--batch_norm', type=bool, default=False, help='batch normal
 parser.set_defaults(shuffle=False)
 args = parser.parse_args()
 
-print args
+print(args)
 
 assert args.word_vector_size in [50, 100, 200, 300]
 
 network_name = args.prefix + '%s.mh%d.n%d.bs%d%s%s%s.babi%s' % (
     args.network, 
     args.memory_hops, 
-    args.dim, 
+    args.dim,
     args.batch_size, 
     ".na" if args.normalize_attention else "", 
     ".bn" if args.batch_norm else "", 
@@ -72,21 +72,21 @@ if args.network == 'dmn_batch':
 elif args.network == 'dmn_basic':
     import dmn_basic
     if (args.batch_size != 1):
-        print "==> no minibatch training, argument batch_size is useless"
+        print("==> no minibatch training, argument batch_size is useless")
         args.batch_size = 1
     dmn = dmn_basic.DMN_basic(**args_dict) # Initialize the dmn basic with all the arguments available. This also initializes theano functions and parameters.
 
 elif args.network == 'dmn_smooth':
     import dmn_smooth
     if (args.batch_size != 1):
-        print "==> no minibatch training, argument batch_size is useless"
+        print("==> no minibatch training, argument batch_size is useless")
         args.batch_size = 1
     dmn = dmn_smooth.DMN_smooth(**args_dict)
 
 elif args.network == 'dmn_qa':
     import dmn_qa_draft
     if (args.batch_size != 1):
-        print "==> no minibatch training, argument batch_size is useless"
+        print("==> no minibatch training, argument batch_size is useless")
         args.batch_size = 1
     dmn = dmn_qa_draft.DMN_qa(**args_dict)
 
@@ -96,41 +96,6 @@ else:
 
 if args.load_state != "":
     dmn.load_state(args.load_state)
-
-# Run through train epochs and steps
-if args.mode == 'train':
-    print "==> training"   	
-    skipped = 0
-    for epoch in range(args.epochs):
-        start_time = time.time()
-        
-        if args.shuffle:
-            dmn.shuffle_train_set()
-        
-        _, skipped = do_epoch('train', epoch, skipped) # Run do_epoch for train
-        
-        epoch_loss, skipped = do_epoch('test', epoch, skipped) # Run do_epoch for test
-        
-        state_name = 'states/%s.epoch%d.test%.5f.state' % (network_name, epoch, epoch_loss)
-
-        if (epoch % args.save_every == 0):    
-            print "==> saving ... %s" % state_name
-            dmn.save_params(state_name, epoch)
-        
-        print "epoch %d took %.3fs" % (epoch, float(time.time()) - start_time)
-
-elif args.mode == 'test':
-    file = open('last_tested_model.json', 'w+')
-    data = dict(args._get_kwargs())
-    data["id"] = network_name
-    data["name"] = network_name
-    data["description"] = ""
-    data["vocab"] = dmn.vocab.keys()
-    json.dump(data, file, indent=2)
-    do_epoch('test', 0)
-
-else:
-    raise Exception("unknown mode")
 
 def do_epoch(mode, epoch, skipped=0):
     '''
@@ -150,9 +115,11 @@ def do_epoch(mode, epoch, skipped=0):
     y_pred = []
     avg_loss = 0.0
     prev_time = time.time()
-    
+
     batches_per_epoch = dmn.get_batches_per_epoch(mode)
-    
+    #if batches_per_epoch==0: batches_per_epoch=10
+    print(batches_per_epoch, dmn)
+
     for i in range(0, batches_per_epoch):
         step_data = dmn.step(i, mode) # Run step using the dynamic memory network object
         prediction = step_data["prediction"]
@@ -160,36 +127,73 @@ def do_epoch(mode, epoch, skipped=0):
         current_loss = step_data["current_loss"]
         current_skip = (step_data["skipped"] if "skipped" in step_data else 0)
         log = step_data["log"]
-        
+
         skipped += current_skip
-        
+
         if current_skip == 0:
             avg_loss += current_loss
-            
+
             for x in answers:
                 y_true.append(x)
-            
+
             for x in prediction.argmax(axis=1):
                 y_pred.append(x)
-            
+
             # TODO: save the state sometimes
             if (i % args.log_every == 0):
                 cur_time = time.time()
-                print ("  %sing: %d.%d / %d \t loss: %.3f \t avg_loss: %.3f \t skipped: %d \t %s \t time: %.2fs" % 
-                    (mode, epoch, i * args.batch_size, batches_per_epoch * args.batch_size, 
+                print ("  %sing: %d.%d / %d \t loss: %.3f \t avg_loss: %.3f \t skipped: %d \t %s \t time: %.2fs" %
+                    (mode, epoch, i * args.batch_size, batches_per_epoch * args.batch_size,
                      current_loss, avg_loss / (i + 1), skipped, log, cur_time - prev_time))
                 prev_time = cur_time
-        
+
         if np.isnan(current_loss):
-            print "==> current loss IS NaN. This should never happen :) " 
+            print("==> current loss IS NaN. This should never happen :) " )
             exit()
 
     avg_loss /= batches_per_epoch
-    print "\n  %s loss = %.5f" % (mode, avg_loss)
-    print "confusion matrix:"
-    print metrics.confusion_matrix(y_true, y_pred)
-    
+    print("\n  %s loss = %.5f" % (mode, avg_loss))
+    print("confusion matrix:")
+    print(metrics.confusion_matrix(y_true, y_pred))
+
     accuracy = sum([1 if t == p else 0 for t, p in zip(y_true, y_pred)])
-    print "accuracy: %.2f percent" % (accuracy * 100.0 / batches_per_epoch / args.batch_size)
-    
+    print("accuracy: %.2f percent" % (accuracy * 100.0 / batches_per_epoch / args.batch_size))
+
     return avg_loss, skipped
+
+# Run through train epochs and steps
+if args.mode == 'train':
+    print("==> training"   )
+    skipped = 0
+    for epoch in range(args.epochs):
+        start_time = time.time()
+        
+        if args.shuffle:
+            dmn.shuffle_train_set()
+        
+        _, skipped = do_epoch('train', epoch, skipped) # Run do_epoch for train
+        
+        epoch_loss, skipped = do_epoch('test', epoch, skipped) # Run do_epoch for test
+        
+        state_name = 'states/%s.epoch%d.test%.5f.state' % (network_name, epoch, epoch_loss)
+
+        if (epoch % args.save_every == 0):    
+            print("==> saving ... %s" % state_name)
+            dmn.save_params(state_name, epoch)
+        
+        print("epoch %d took %.3fs" % (epoch, float(time.time()) - start_time))
+
+elif args.mode == 'test':
+    file = open('last_tested_model.json', 'w+')
+    data = dict(args._get_kwargs())
+    data["id"] = network_name
+    data["name"] = network_name
+    data["description"] = ""
+    data["vocab"] = list(dmn.vocab.keys())
+    json.dump(data, file, indent=2)
+    do_epoch('test', 0)
+
+else:
+    raise Exception("unknown mode")
+
+
