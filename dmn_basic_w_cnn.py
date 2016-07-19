@@ -23,7 +23,7 @@ class DMN_basic:
     
     def __init__(self, train_raw, test_raw, word2vec, word_vector_size, 
                 dim, mode, answer_module, input_mask_mode, memory_hops, l2, 
-                normalize_attention, **kwargs):
+                normalize_attention, num_cnn_layers, vocab_len, maximum_doc_len, char_vocab, **kwargs):
 
         print("==> not used params in DMN class:", kwargs.keys())
         self.vocab = {}
@@ -38,17 +38,28 @@ class DMN_basic:
         self.memory_hops = memory_hops
         self.l2 = l2
         self.normalize_attention = normalize_attention
+        self.final_num_layers = num_cnn_layers
+        self.vocab_length = vocab_len
+        self.max_doc_length = maximum_doc_len
+        self.char_vocab = char_vocab
         
     # Process the input into its different parts and calculate the input mask
-        self.train_input, self.train_q, self.train_answer, self.train_input_mask = self._process_input(train_raw)
-        self.test_input, self.test_q, self.test_answer, self.test_input_mask = self._process_input(test_raw)
+        self.train_input_raw, self.train_q_raw, self.train_answer, self.train_input_mask = self._process_input(train_raw)
+        self.test_input_raw, self.test_q_raw, self.test_answer, self.test_input_mask = self._process_input(test_raw)
         self.vocab_size = len(self.vocab)
 
-        self.input_var = T.matrix('input_var')
+        print(type(self.train_input_raw), len(self.train_input_raw))
+        self.train_input = self.build_cnn(self.train_input_raw)
+        self.test_input = self.build_cnn(self.test_input_raw)
+        self.train_q = self.build_cnn(self.train_q_raw)
+        self.test_q = self.build_cnn(self.test_q_raw)
+
+        self.input_var = T.matrix('input_var') #previously matrix
         self.q_var = T.matrix('question_var')
         self.answer_var = T.iscalar('answer_var')
         self.input_mask_var = T.ivector('input_mask_var')
-        
+
+        print(self.input_var)
             
         print("==> building input module")
         self.W_inp_res_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.word_vector_size))
@@ -62,6 +73,11 @@ class DMN_basic:
         self.W_inp_hid_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.word_vector_size))
         self.W_inp_hid_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
         self.b_inp_hid = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+
+        # self.input_var = self.build_cnn(self.input_var)
+        # self.q_var = self.build_cnn(self.q_var)
+
+        print(self.input_var)
         
         inp_c_history, _ = theano.scan(fn=self.input_gru_step, 
                     sequences=self.input_var,
@@ -154,6 +170,7 @@ class DMN_basic:
                   self.W_mem_upd_in, self.W_mem_upd_hid, self.b_mem_upd,
                   self.W_mem_hid_in, self.W_mem_hid_hid, self.b_mem_hid,
                   self.W_b, self.W_1, self.W_2, self.b_1, self.b_2, self.W_a]
+        #TODO add in the cnn params
         
         if self.answer_module == 'recurrent':
             self.params = self.params + [self.W_ans_res_in, self.W_ans_res_hid, self.b_ans_res, 
@@ -174,9 +191,10 @@ class DMN_basic:
         
         if self.mode == 'train':
             print("==> compiling train_fn")
-            self.train_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.input_mask_var], 
+            self.train_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.input_mask_var],
                                        outputs=[self.prediction, self.loss],
                                        updates=updates)
+
         
         print("==> compiling test_fn")
         self.test_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.input_mask_var],
@@ -274,6 +292,57 @@ class DMN_basic:
             for (x, y) in zip(self.params, loaded_params):
                 x.set_value(y)
 
+    def build_cnn(self, input_var):
+        # We'll create a CNN of two convolution + pooling stages
+        # and a fully-connected hidden layer in front of the output layer.
+        print("Will run using CNN")
+        # Input layer, as usual:
+
+        network = lasagne.layers.InputLayer(shape=(len(input_var), 1, self.vocab_length, self.max_doc_length),
+                                             input_var=np.array(input_var))
+        print(network.params)
+        # This time we do not apply input dropout, as it tends to work less well
+        # for convolutional layers.
+
+        # Convolutional layer with 32 kernels of size 5x5. Strided and padded
+        # convolutions are supported as well; see the docstring.
+        network = lasagne.layers.Conv2DLayer(
+                network, num_filters=32, filter_size=(36, 5),
+                nonlinearity=lasagne.nonlinearities.rectify,
+                W=lasagne.init.GlorotUniform(gain=0.25))
+        #TODO tweek with smaller range of weights
+        print(network.params)
+        print(network.get_params())
+        # Expert note: Lasagne provides alternative convolutional layers that
+        # override Theano's choice of which implementation to use; for details
+        # please see http://lasagne.readthedocs.org/en/latest/user/tutorial.html.
+
+        # Max-pooling layer of factor 2 in both dimensions:
+        network = lasagne.layers.MaxPool2DLayer(network, pool_size=(1,3))
+
+        # Another convolution with 32 5x5 kernels, and another 2x2 pooling:
+        network = lasagne.layers.Conv2DLayer(
+                network, num_filters=32, filter_size=(1,5),
+                nonlinearity=lasagne.nonlinearities.rectify)
+        network = lasagne.layers.MaxPool2DLayer(network, pool_size=(1,3))
+
+        # # A fully-connected layer of 256 units with 50% dropout on its inputs:
+        # network = lasagne.layers.DenseLayer( network,
+        #         #lasagne.layers.dropout(network, p=.5),
+        #         num_units=500,
+        #         nonlinearity=lasagne.nonlinearities.rectify)
+        #
+        # # And, finally, the final_num_layers-unit output layer with 50% dropout on its inputs:
+        # network_final = lasagne.layers.DenseLayer(network,
+        #         #lasagne.layers.dropout(network, p=.5),
+        #         num_units=self.final_num_layers,
+        #         nonlinearity=lasagne.nonlinearities.softmax)
+
+        #TODO find the CNN params (through network or lasagne) - all of them!!!!
+        print(network.params)
+
+        return network
+
     def _process_input(self, data_raw):
         '''
             This module processes the raw data input and grabs all the relevant sections and calculates the input_mask.
@@ -288,27 +357,31 @@ class DMN_basic:
         input_masks = []
         questions = []
         for x in data_raw:
-            inp = x["C"].lower().split(' ')
-            inp = [w for w in inp if len(w) > 0]
-            q = x["Q"].lower().split(' ')
-            q = [w for w in q if len(w) > 0]
+            # inp = x["C"].lower().split(' ')
+            # inp = [w for w in inp if len(w) > 0]
+            # q = x["Q"].lower().split(' ')
+            # q = [w for w in q if len(w) > 0]
 
-            # Process the words from the input, answers, and questions to see what needs a new vector in word2vec.
-            inp_vector = [utils.process_word(word = w,
-                                        word2vec = self.word2vec, 
-                                        vocab = self.vocab, 
-                                        ivocab = self.ivocab, 
-                                        word_vector_size = self.word_vector_size, 
-                                        to_return = "word2vec", silent=True) for w in inp]
-            
-            q_vector = [utils.process_word(word = w,
-		    			word2vec = self.word2vec,
-					vocab = self.vocab,
-					ivocab = self.ivocab,
-					word_vector_size = self.word_vector_size,
-					to_return = "word2vec", silent=True) for w in q]
-            inputs.append(np.vstack(inp_vector).astype(floatX))
-            questions.append(np.vstack(q_vector).astype(floatX))
+            inp = utils.get_one_hot_doc(x["C"], self.char_vocab)
+            q = utils.get_one_hot_doc(x["Q"], self.char_vocab)
+
+            # # Process the words from the input, answers, and questions to see what needs a new vector in word2vec.
+            # inp_vector = [utils.process_word(word = w,
+            #                             word2vec = self.word2vec,
+            #                             vocab = self.vocab,
+            #                             ivocab = self.ivocab,
+            #                             word_vector_size = self.word_vector_size,
+            #                             to_return = "word2vec") for w in inp]
+            #
+            # q_vector = [utils.process_word(word = w,
+		    	# 		word2vec = self.word2vec,
+				# 	vocab = self.vocab,
+				# 	ivocab = self.ivocab,
+				# 	word_vector_size = self.word_vector_size,
+				# 	to_return = "word2vec") for w in q]
+            #
+            # inputs.append(np.vstack(inp_vector).astype(floatX))
+            # questions.append(np.vstack(q_vector).astype(floatX))
             answers.append(utils.process_word(word = x["A"],
                                             word2vec = self.word2vec, 
                                             vocab = self.vocab, 
@@ -323,16 +396,27 @@ class DMN_basic:
                 input_masks.append(np.array([index for index, w in enumerate(inp) if w == '.'], dtype=np.int32))
             else:
                 raise Exception("invalid input_mask_mode")
+            # print(x["C"])
+            # print(inp.shape)
+            # print(inp[0])
+            #inp_vector = self.build_cnn(inp)
+            inputs.append(inp)
+            # q_vector = self.build_cnn(q)
+            questions.append(q)
+
+            #input_masks = None
         
         return inputs, questions, answers, input_masks
 
     
     def get_batches_per_epoch(self, mode):
         if (mode == 'train'):
-            print(len(self.train_input))
-            return len(self.train_input)
+            print(self.train_input.output_shape)
+            return self.train_input.output_shape[0]
+            #return len(self.train_input)
         elif (mode == 'test'):
-            return len(self.test_input)
+            return self.test_input.output_shape[0]
+            #return len(self.test_input)
         else:
             raise Exception("unknown mode")
     
@@ -364,7 +448,7 @@ class DMN_basic:
             answers = self.train_answer
             input_masks = self.train_input_mask
         elif mode == "test":    
-            theano_fn = self.test_fn 
+            theano_fn = self.test_fn
             inputs = self.test_input
             qs = self.test_q
             answers = self.test_answer
@@ -376,6 +460,8 @@ class DMN_basic:
         q = qs[batch_index]
         ans = answers[batch_index]
         input_mask = input_masks[batch_index]
+
+
 
         skipped = 0
         grad_norm = float('NaN')

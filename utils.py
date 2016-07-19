@@ -17,7 +17,6 @@ def init_data(fname):
     print("==> Loading test from %s" % fname)
     tasks = [] # list that will be returned
     documents = ""
-    maxi=0
     num_files = 0
     for f in os.listdir(fname):
         inData = open(fname + "/" + f)
@@ -42,10 +41,7 @@ def init_data(fname):
                 task["A"] = novelty
                 tasks.append(task.copy())
                 documents += text
-            if i>maxi:
-                maxi=i
     #documents = ""
-    print(maxi, num_files)
     return tasks
 
 # Go fetch and process the raw data from the file system using init_data. See init_data.
@@ -129,3 +125,61 @@ def text_to_words(raw_text):
 	# and return the result.
 	clean_text = ( " ".join( meaningful_words ))
 	return   clean_text
+
+def get_one_hot_doc(txt, char_vocab, replace_vocab=None, replace_char=' ',
+                min_length=10, max_length=300, pad_out=True,
+                to_lower=True, reverse = True,
+                truncate_left=False, encoding=None):
+    clean_txt = normalize(txt, replace_vocab, replace_char, min_length, max_length, pad_out,
+                          to_lower, reverse, truncate_left,encoding)
+
+    return to_one_hot(clean_txt, char_vocab)
+
+
+zhang_lecun_vocab=list("abcdefghijklmnopqrstuvwxyz0123456789")
+def to_one_hot(txt, vocab=zhang_lecun_vocab):
+    vocab_hash = {b: a for a, b in enumerate(vocab)}
+    vocab_size = len(vocab)
+    one_hot_vec = np.zeros((1, vocab_size, len(txt)), dtype=np.float32)
+    # run through txt and "switch on" relevant positions in one-hot vector
+    for idx, char in enumerate(txt):
+        try:
+            vocab_idx = vocab_hash[char]
+            one_hot_vec[0, vocab_idx, idx] = 1
+        # raised if character is out of vocabulary
+        except KeyError:
+            pass
+    return one_hot_vec
+
+def normalize(txt, vocab=None, replace_char=' ',
+                min_length=10, max_length=300, pad_out=True,
+                to_lower=True, reverse = True,
+                truncate_left=False, encoding=None):
+
+    # store length for multiple comparisons
+    txt_len = len(txt)
+
+#     # normally reject txt if too short, but doing someplace else
+#     if txt_len < min_length:
+#         raise TextTooShortException("Too short: {}".format(txt_len))
+    # truncate if too long
+    if truncate_left:
+        txt = txt[-max_length:]
+    else:
+        txt = txt[:max_length]
+    # change case
+    if to_lower:
+        txt = txt.lower()
+    # Reverse order
+    if reverse:
+        txt = txt[::-1]
+    # replace chars
+    if vocab is not None:
+        txt = ''.join([c if c in vocab else replace_char for c in txt])
+    # re-encode text
+    if encoding is not None:
+        txt = txt.encode(encoding, errors="ignore")
+    # pad out if needed
+    if pad_out and max_length>txt_len:
+        txt = replace_char * (max_length - txt_len) + txt
+    return txt

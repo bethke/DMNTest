@@ -16,7 +16,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--network', type=str, default="dmn_batch", help='network type: dmn_basic, dmn_smooth, or dmn_batch')
 parser.add_argument('--word_vector_size', type=int, default=50, help='embeding size (50, 100, 200, 300 only)')
 parser.add_argument('--dim', type=int, default=40, help='number of hidden units in input module GRU')
-parser.add_argument('--epochs', type=int, default=500, help='number of epochs')
+parser.add_argument('--epochs', type=int, default=50, help='number of epochs')
 parser.add_argument('--load_state', type=str, default="", help='state file path')
 parser.add_argument('--answer_module', type=str, default="feedforward", help='answer module type: feedforward or recurrent')
 parser.add_argument('--mode', type=str, default="train", help='mode: train or test. Test mode required load_state')
@@ -56,11 +56,16 @@ train_raw, test_raw = utils.get_raw_data(args.input_train, args.input_test)
 
 # Initialize word2vec with utils.load_glove
 word2vec = utils.load_glove(args.word_vector_size)
+#word2vec = {}
 
 args_dict = dict(args._get_kwargs())
 args_dict['train_raw'] = train_raw
 args_dict['test_raw'] = test_raw
 args_dict['word2vec'] = word2vec
+args_dict['char_vocab'] = list("abcdefghijklmnopqrstuvwxyz0123456789")
+args_dict['vocab_len'] = len(args_dict['char_vocab'])
+args_dict['num_cnn_layers'] = 20
+args_dict['maximum_doc_len'] = 200
     
 
 # init class
@@ -76,19 +81,27 @@ elif args.network == 'dmn_basic':
         args.batch_size = 1
     dmn = dmn_basic.DMN_basic(**args_dict) # Initialize the dmn basic with all the arguments available. This also initializes theano functions and parameters.
 
-elif args.network == 'dmn_smooth':
-    import dmn_smooth
+elif args.network =='dmn_cnn':
+    raise Exception("Sorry - this isn't working right now!!")
+    import dmn_basic_w_cnn
     if (args.batch_size != 1):
         print("==> no minibatch training, argument batch_size is useless")
         args.batch_size = 1
-    dmn = dmn_smooth.DMN_smooth(**args_dict)
-
-elif args.network == 'dmn_qa':
-    import dmn_qa_draft
-    if (args.batch_size != 1):
-        print("==> no minibatch training, argument batch_size is useless")
-        args.batch_size = 1
-    dmn = dmn_qa_draft.DMN_qa(**args_dict)
+    dmn = dmn_basic_w_cnn.DMN_basic(**args_dict)
+#
+# elif args.network == 'dmn_smooth':
+#     import dmn_smooth
+#     if (args.batch_size != 1):
+#         print("==> no minibatch training, argument batch_size is useless")
+#         args.batch_size = 1
+#     dmn = dmn_smooth.DMN_smooth(**args_dict)
+# 
+# elif args.network == 'dmn_qa':
+#     import dmn_qa_draft
+#     if (args.batch_size != 1):
+#         print("==> no minibatch training, argument batch_size is useless")
+#         args.batch_size = 1
+#     dmn = dmn_qa_draft.DMN_qa(**args_dict)
 
 else: 
     raise Exception("No such network known: " + args.network)
